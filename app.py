@@ -85,7 +85,7 @@ def select():
             "raw": raw_date,
             "folder": folder_prefix,
             "display": date.strftime('%d-%b'),
-            "preview": get_preview_images(disk, date, max_images=9),
+            "preview": get_preview_images(disk, date, max_images=6),
             "stats": analyze_folder_content(disk, raw_date),
             "tag": tag
         }

@@ -48,6 +48,7 @@ def find_dates(disk):
 
     for root, dirs, files in os.walk(disk):
         for file in files:
+
             if file.lower().endswith(IMG_EXTS):
                 file_path = os.path.join(root, file)
                 try:
@@ -98,7 +99,7 @@ def copy_files(disk, folders, destination):
 
         main_folder = f"{date_obj.strftime('%Y%m%d')} {tag.title()}"
         base_path = os.path.join(destination, main_folder, camera_name)
-        photo_path = os.path.join(base_path, "photo", "others")
+        photo_path = os.path.join(base_path, "photo")  # <- removido 'others'
         video_path = os.path.join(base_path, "video")
 
         os.makedirs(photo_path, exist_ok=True)
@@ -112,33 +113,26 @@ def copy_files(disk, folders, destination):
                     continue
 
                 ext = os.path.splitext(file)[1].lower()
-
-                # Detect panoramas
-                is_pano = "pano" in file.lower()
+                is_pano_folder = "panorama" in root.lower()
                 is_photo = ext in COPY_EXTS
                 is_video = ext in VIDEO_EXTS
 
                 if is_photo:
-                    # Dentro de pasta chamada PANORAMA?
-                    if "panorama" in root.lower():
+                    if is_pano_folder:
                         pano_folder = os.path.dirname(path)
                         pano_files = [f for f in os.listdir(pano_folder) if os.path.isfile(os.path.join(pano_folder, f))]
                         pano_count = len(pano_files)
+                        pano_type = dict_panos.get(pano_count, "others")
 
-                        pano_type = dict_panos.get(pano_count, "Unknown")
                         pano_base = os.path.join(base_path, "photo", "panoramas")
-
-                        # Procurar pasta disponível com incremento
                         candidate_folder = os.path.join(pano_base, pano_type)
                         index = 1
-                        while os.path.exists(os.path.join(candidate_folder)) and \
-                                file in os.listdir(os.path.join(candidate_folder)):
+                        while os.path.exists(candidate_folder) and file in os.listdir(candidate_folder):
                             candidate_folder = os.path.join(pano_base, f"{pano_type}_{index}")
                             index += 1
 
                         os.makedirs(candidate_folder, exist_ok=True)
                         dest = os.path.join(candidate_folder, file)
-
                     else:
                         dest = os.path.join(photo_path, file)
 
@@ -165,6 +159,7 @@ def copy_files(disk, folders, destination):
         "size": size_str,
         "path": base_path
     }
+
 
 
 def load_camera_db():

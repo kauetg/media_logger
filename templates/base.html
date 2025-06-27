@@ -17,7 +17,7 @@
 </head>
 <body class="bg-light">
 <!-- NAVBAR -->
-<nav class="navbar navbar-expand-lg navbar-light bg-light rounded shadow-sm mb-4">
+<nav class="navbar navbar-expand-lg navbar-light bg-light rounded shadow-sm mb-3">
   <div class="container">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') }}">
       <img src="{{ url_for('static', filename='img/logo_small.png') }}" alt="Logo"
@@ -26,9 +26,9 @@
     </a>
     <div class="collapse navbar-collapse justify-content-end">
       <ul class="navbar-nav">
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('camera_list') }}">
-            <i class="bi bi-camera"></i> Cameras
+        <li class="nav-item ms-2">
+          <a href="{{ url_for('camera_list') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-camera me-1"></i> Manage Cameras
           </a>
         </li>
       </ul>

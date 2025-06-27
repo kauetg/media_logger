@@ -12,7 +12,7 @@ def convert_raw_to_jpg(raw_path, output_path):
         with rawpy.imread(raw_path) as raw:
             rgb = raw.postprocess()
         img = Image.fromarray(rgb)
-        img = img.resize((300, 300))
+        img = img.resize((150, 150))
         img.save(output_path, "JPEG")
         return output_path
     except Exception as e:
@@ -69,6 +69,7 @@ def get_preview_images(disk, target_date, max_images=9):
                 shutil.copy2(path, target)
             except:
                 continue
+        print("preview")
         final_paths.append(f"/{target.replace(os.sep, '/')}")
 
     return final_paths
