@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Media Logger | Select your Memory Card{% endblock %}
+
+{% block content %}
+<div class="text-center mb-4 hero-section">
+  <img src="{{ url_for('static', filename='img/home.png') }}" alt="Logo" class="hero-image">
+  <h1 class="mt-3">Media Logger</h1>
+  <p class="text-muted">Copy and organize your images on the external disk</p>
+</div>
+
+<h3 class="text-center mb-4">Select your memory card</h3>
+{% if disks %}
+<div class="row row-cols-1 row-cols-md-2 g-4">
+    {% for item in disks %}
+<div class="col d-flex justify-content-center">
+  <a href="{{ url_for('select') }}?disk={{ item.disk }}" class="card custom-card text-decoration-none text-dark">
+    <div class="img-container mt-3">
+      <img src="{{ url_for('static', filename='img/cameras/' ~ item.image) }}" class="rounded-img" alt="{{ item.name }}">
+    </div>
+    <div class="card-body text-center">
+      <h5 class="card-title">{{ item.name }}</h5>
+      <p class="card-text"><strong>Disk:</strong> {{ item.disk }}</p>
+    </div>
+    <div class="card-footer bg-transparent border-0 text-center">
+      <button class="btn btn-primary w-75">Select</button>
+    </div>
+  </a>
+</div>
+    {% endfor %}
+</div>
+{% else %}
+  <div class="alert alert-warning text-center mt-4">
+    <i class="bi bi-exclamation-circle me-2"></i>
+    No external disks detected. Please insert a memory card.
+  </div>
+{% endif %}{% endblock %}

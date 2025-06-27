@@ -1,0 +1,6 @@
+flask~=3.1.1
+
+ExifRead~=3.3.1
+rawpy~=0.25.0
+pillow~=11.2.1
+psutil~=7.0.0

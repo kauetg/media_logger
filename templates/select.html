@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Selecionar Pastas{% endblock %}
+
+{% block content %}
+
+<h2 class="mb-3">Selected Camera: <span class="badge bg-secondary">{{ camera.name }}</span></h2>
+
+<form method="POST" action="/status">
+    <input type="hidden" name="disk" value="{{ disk }}">
+    <input type="hidden" name="camera_name" value="{{ camera.name }}">
+
+    {% for date in dates %}
+<div class="card mb-3 p-3 shadow-lg rounded-3">
+  <!-- LINHA 1: Checkbox + Data + Tag + Preview -->
+  <div class="row g-2 align-items-center mb-2">
+    <div class="col-auto">
+      <input class="form-check-input" type="checkbox" name="selected_dates" value="{{ date.raw }}" checked>
+    </div>
+    <div class="col-auto">
+      <div class="fs-5 fw-bold">{{ date.display }}</div>
+    </div>
+    <div class="col">
+      <input type="text" class="form-control form-control-sm" name="tag_{{ date.raw }}" placeholder="Folder Tag" value="{{ date.tag }}">
+    </div>
+    <div class="col-auto text-end">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal"
+              data-bs-target="#previewModal{{ loop.index }}">
+        Preview
+      </button>
+    </div>
+  </div>
+
+  <!-- LINHA 2: Stats -->
+  <div class="row text-muted small">
+    <div class="col d-flex flex-wrap justify-content-center align-items-center mt-2">
+      <div class="me-4 d-flex align-items-center">
+        <i class="bi bi-image me-1"></i> {{ date.stats.photos }} photos
+      </div>
+      <div class="me-4 d-flex align-items-center">
+        <i class="bi bi-camera-reels me-1"></i> {{ date.stats.videos }} videos
+      </div>
+      <div class="d-flex align-items-center">
+        <i class="bi bi-hdd me-1"></i> {{ date.stats.size }}
+      </div>
+    </div>
+  </div>
+</div>
+
+    <!-- Modal para o preview -->
+    <div class="modal fade" id="previewModal{{ loop.index }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Preview - {{ date.display }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {% if date.preview %}
+                    <div class="row row-cols-3 g-2">
+                        {% for img in date.preview %}
+<div class="col">
+  <div class="ratio ratio-1x1 rounded overflow-hidden bg-light">
+    <img src="{{ img }}" class="img-fluid object-fit-cover" alt="Preview">
+  </div>
+</div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No preview images found.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% endfor %}
+
+    <button type="submit" class="btn btn-success w-100 mt-3">Start Copying</button>
+</form>
+
+
+{% endblock %}

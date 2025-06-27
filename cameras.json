@@ -1,0 +1,22 @@
+{
+  "SONY - ILCE-7M4": {
+    "name": "Sony a7 IV",
+    "image": "ILCE-7M4K3_400x.webp"
+  },
+  "GoPro - HERO10 Black": {
+    "name": "GoPro Hero 10",
+    "image": "gopro_10.jpg"
+  },
+  "GoPro - HERO13 Black": {
+    "name": "GoPro Hero 13",
+    "image": "gopro_13.jpg"
+  },
+  "DJI - FC8282": {
+    "name": "DJI Air 3",
+    "image": "air3.jpg"
+  },
+  "samsung - Galaxy S24 Ultra": {
+    "name": "Samsung S24 Ultra",
+    "image": "s24ultra.jpg"
+  }
+}

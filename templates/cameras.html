@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Active Cameras{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Active Cameras</h2>
+
+<div class="row row-cols-1 row-cols-md-2 g-4">
+    {% for device_id, info in camera_db.items() %}
+    <div class="col">
+        <div class="card h-100 shadow">
+            <div class="card-body d-flex align-items-center">
+                <img src="{{ url_for('static', filename='img/cameras/' ~ info.image) }}"
+                     alt="{{ info.name }}"
+                     class="rounded me-3"
+                     style="width: 64px; height: 64px; object-fit: cover;">
+                <div>
+                    <h5 class="card-title mb-0">{{ info.name }}</h5>
+                    <small class="text-muted">{{ device_id }}</small>
+                </div>
+            </div>
+            <div class="card-footer bg-transparent border-0 text-end">
+                <button class="btn btn-outline-primary btn-sm"
+                        onclick="openEditCameraModal('{{ device_id }}', '{{ info.name }}', '{{ url_for('static', filename='img/cameras/' ~ info.image) }}')">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                <form action="{{ url_for('delete_camera', camera_id=device_id) }}" method="POST" style="display:inline;">
+    <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure?')">
+        <i class="bi bi-trash"></i> Delete
+    </button>
+                    </form>
+</form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+</div>
+<button onclick="openAddCameraModal()" class="btn btn-success mt-4">
+    <i class="bi bi-plus-circle me-1"></i> Add Camera
+</button>
+
+<!-- Modal -->
+<div class="modal fade" id="cameraModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="POST" id="cameraForm" enctype="multipart/form-data" action="/add_camera">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="cameraModalLabel">Add Camera</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+
+          <!-- Stage 1: Upload test image -->
+          <div id="stage-upload">
+            <label class="form-label">Upload a photo taken with this camera</label>
+            <input type="file" class="form-control" id="testPhoto" accept="image/*">
+          </div>
+
+          <!-- Stage 2: After EXIF is read -->
+          <div id="stage-form" class="d-none">
+            <input type="hidden" name="original_id" id="originalId">
+            <div class="mb-3">
+              <label for="cameraId" class="form-label">EXIF Name</label>
+              <input type="text" class="form-control" name="camera_id" id="cameraId" required>
+            </div>
+            <div class="mb-3">
+              <label for="cameraName" class="form-label">Display Name</label>
+              <input type="text" class="form-control" name="name" id="cameraName" required>
+            </div>
+<div id="previewImageContainer" class="mb-3 d-none text-center">
+  <label class="form-label">Suggested Image</label><br>
+  <img id="previewImage" src="" class="img-thumbnail" style="max-height: 120px;">
+</div>
+            <div class="mb-3">
+              <label for="cameraImage" class="form-label">Camera Image</label>
+              <input type="file" class="form-control" name="image_file" id="cameraImage" accept="image/*">
+                 <small class="form-text text-muted">Optional: Choose a different image</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary d-none" id="saveBtn">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // Abrir modal "Add Camera"
+  window.openAddCameraModal = function () {
+    document.getElementById("cameraModalLabel").innerText = "Add Camera";
+    document.getElementById("cameraForm").action = "/add_camera";
+    document.getElementById("originalId").value = "";
+    document.getElementById("cameraId").value = "";
+    document.getElementById("cameraName").value = "";
+    document.getElementById("cameraImage").value = "";
+    document.getElementById("testPhoto").value = "";
+    document.getElementById("previewImage").src = "";
+    document.getElementById("previewImageContainer").classList.add("d-none");
+    document.getElementById("stage-upload").classList.remove("d-none");
+    document.getElementById("stage-form").classList.add("d-none");
+    document.getElementById("saveBtn").classList.add("d-none");
+
+    new bootstrap.Modal(document.getElementById("cameraModal")).show();
+  };
+
+  // Abrir modal "Edit Camera"
+  window.openEditCameraModal = function (id, name, imageUrl) {
+    document.getElementById("cameraModalLabel").innerText = "Edit Camera";
+    document.getElementById("cameraForm").action = `/edit_camera/${encodeURIComponent(id)}`;
+    document.getElementById("originalId").value = id;
+    document.getElementById("cameraId").value = id;
+    document.getElementById("cameraName").value = name;
+    document.getElementById("cameraImage").value = "";
+    document.getElementById("testPhoto").value = "";
+
+    // Mostra imagem atual como sugestão
+    const preview = document.getElementById("previewImage");
+    preview.src = imageUrl;
+    document.getElementById("previewImageContainer").classList.remove("d-none");
+
+    document.getElementById("stage-upload").classList.add("d-none");
+    document.getElementById("stage-form").classList.remove("d-none");
+    document.getElementById("saveBtn").classList.remove("d-none");
+
+    new bootstrap.Modal(document.getElementById("cameraModal")).show();
+  };
+
+  // Detecta EXIF após upload da imagem de teste
+  document.getElementById('testPhoto').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await fetch('/detect_exif', {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (data.device_id) {
+      document.getElementById('cameraId').value = data.device_id;
+      document.getElementById('originalId').value = data.device_id;
+
+      // Buscar imagem sugerida
+      const imgRes = await fetch('/preview_camera_image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.device_id })
+      });
+
+      const imgData = await imgRes.json();
+      if (imgData.url) {
+        const preview = document.getElementById("previewImage");
+        preview.src = imgData.url;
+        document.getElementById("previewImageContainer").classList.remove("d-none");
+      }
+
+      document.getElementById("stage-upload").classList.add("d-none");
+      document.getElementById("stage-form").classList.remove("d-none");
+      document.getElementById("saveBtn").classList.remove("d-none");
+    } else {
+      alert("Could not detect EXIF data.");
+    }
+  });
+});
+</script>
+
+
+{% endblock %}

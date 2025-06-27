@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Copy Status{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Copy Status</h2>
+
+{% for folder in folders %}
+<div class="card mb-4 p-3 shadow-lg">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center">
+      <img src="{{ url_for('static', filename='img/cameras/' + folder.camera.image) }}"
+           alt="{{ folder.camera.name }}"
+           class="me-3 rounded shadow-sm"
+           style="height: 48px; width: 48px; object-fit: cover;">
+      <div>
+        <div class="fs-5 fw-semibold">{{ folder.folder }}</div>
+        <div class="text-muted small">{{ folder.camera.name }}</div>
+      </div>
+    </div>
+<button class="btn btn-outline-primary btn-sm open-btn"
+        id="open-btn-{{ loop.index }}" disabled>
+  <i class="bi bi-folder-symlink"></i> Open
+</button>
+  </div>
+
+    <!-- Status Steps -->
+    <div class="d-flex justify-content-around text-center mb-2 status-steps" id="status-steps-{{ loop.index }}">
+  <div class="step waiting active" id="step-waiting-{{ loop.index }}">
+    <div class="circle bg-secondary text-white">
+      <i class="bi bi-clock"></i>
+    </div>
+    <div class="label">Waiting</div>
+  </div>
+  <div class="step copying" id="step-copying-{{ loop.index }}">
+    <div class="circle bg-warning text-white">
+      <i class="bi bi-arrow-repeat"></i>
+    </div>
+    <div class="label">Copying</div>
+  </div>
+  <div class="step done" id="step-done-{{ loop.index }}">
+    <div class="circle bg-success text-white">
+      <i class="bi bi-check-lg"></i>
+    </div>
+    <div class="label">Done</div>
+  </div>
+</div>
+    <!-- Progress Info -->
+<div class="text-center text-muted small">
+  <strong><span id="files-{{ loop.index }}">0</span></strong> images copied –
+  Total size: <strong><span id="size-{{ loop.index }}">0 MB</span></strong>
+</div>
+</div>
+{% endfor %}
+
+<div class="d-flex justify-content-between mt-4">
+    <a href="{{ url_for('select', disk=disk) }}" class="btn btn-secondary">← Back</a>
+    <button id="start-copy" class="btn btn-primary">Start Copy</button>
+</div>
+
+
+<!-- Bootstrap Icons (if not already loaded in base.html) -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+<script>
+document.getElementById('start-copy').addEventListener('click', async () => {
+  const button = document.getElementById('start-copy');
+  button.disabled = true;
+  button.innerText = 'Copying...';
+
+  const folders = {{ folders | tojson | safe }};
+  const disk = {{ disk | tojson | safe }};
+
+  for (let i = 0; i < folders.length; i++) {
+    const folder = folders[i];
+    const stepWaiting = document.getElementById(`step-waiting-${i + 1}`);
+    const stepCopying = document.getElementById(`step-copying-${i + 1}`);
+    const stepDone = document.getElementById(`step-done-${i + 1}`);
+    const filesSpan = document.getElementById(`files-${i + 1}`);
+    const sizeSpan = document.getElementById(`size-${i + 1}`);
+    const openBtn = document.getElementById(`open-btn-${i + 1}`);
+
+    stepWaiting.classList.remove("active");
+    stepCopying.classList.add("active");
+
+    try {
+      const res = await fetch("/copy", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folders: [folder], disk: disk })
+      });
+
+      const data = await res.json();
+
+      // Finaliza a etapa visual
+      stepCopying.classList.remove("active");
+      stepDone.classList.add("active");
+
+      filesSpan.innerText = data.copied || 0;
+      sizeSpan.innerText = data.size || "0 MB";
+
+      // Ativa o botão e define ação
+      if (data.path) {
+        openBtn.disabled = false;
+        openBtn.addEventListener("click", () => {
+          fetch(`/open_folder?path=${encodeURIComponent(data.path)}`);
+        });
+      }
+
+    } catch (err) {
+      console.error("Erro durante cópia:", err);
+    }
+  }
+
+  button.innerText = 'Done!';
+});
+</script>
+
+{% endblock %}
