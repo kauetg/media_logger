@@ -43,53 +43,92 @@ def mod_date(file_path):
         return None
 
 
-def find_dates(disk):
-    all_dates = set()
-
-    for root, dirs, files in os.walk(disk):
-        for file in files:
-
-            if file.lower().endswith(IMG_EXTS):
-                file_path = os.path.join(root, file)
-                try:
-                    all_dates.add(mod_date(file_path))
-                except Exception:
-                    continue
-
-    return sorted(all_dates)
+# Cache: uma varredura por disco/pasta em vez de uma por data exibida.
+# Evita repassar 150GB de cartão a cada preview/stat/cópia.
+_disk_index_cache = {}
 
 
-def analyze_folder_content(disk, date_str):
-    date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-    photo_count = 0
-    video_count = 0
-    total_size_bytes = 0
+def scan_disk(disk):
+    """Varre o disco/pasta de origem uma única vez, indexando arquivos de mídia por data."""
+    index = {}
 
     for root, _, files in os.walk(disk):
         for file in files:
+            ext = os.path.splitext(file)[1].lower()
+            if ext not in IMG_EXTS:
+                continue
+
             path = os.path.join(root, file)
-            if mod_date(path) == date_obj:
-                ext = os.path.splitext(file)[1].lower()
-                if ext in PHOTO_EXTS or ext in VIDEO_EXTS:
-                    total_size_bytes += os.path.getsize(path)
-                    if ext in PHOTO_EXTS:
-                        photo_count += 1
-                    else:
-                        video_count += 1
-    size_mb = round(total_size_bytes / (1024 * 1024), 2)
+            date_obj = mod_date(path)
+            if date_obj is None:
+                continue
+
+            bucket = index.setdefault(date_obj, {
+                "files": [],
+                "photo_count": 0,
+                "video_count": 0,
+                "size_bytes": 0
+            })
+
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+
+            bucket["files"].append(path)
+            bucket["size_bytes"] += size
+            if ext in PHOTO_EXTS:
+                bucket["photo_count"] += 1
+            else:
+                bucket["video_count"] += 1
+
+    return index
+
+
+def get_disk_index(disk, force=False):
+    """Retorna o índice de mídia do disco, reaproveitando a varredura entre select/copy."""
+    if force or disk not in _disk_index_cache:
+        _disk_index_cache[disk] = scan_disk(disk)
+    return _disk_index_cache[disk]
+
+
+def clear_disk_index_cache():
+    """Limpa o cache — chamado quando o usuário volta pra tela inicial (troca de cartão)."""
+    _disk_index_cache.clear()
+
+
+def find_dates(index):
+    return sorted(index.keys())
+
+
+def format_stats(bucket):
+    size_mb = round(bucket["size_bytes"] / (1024 * 1024), 2)
     size_str = f"{size_mb} MB" if size_mb < 1024 else f"{round(size_mb / 1024, 2)} GB"
     return {
-        "photos": photo_count,
-        "videos": video_count,
+        "photos": bucket["photo_count"],
+        "videos": bucket["video_count"],
         "size": size_str
     }
 
 
-def copy_files(disk, folders, destination):
+def _friendly_copy_error(e):
+    """Traduz erros comuns do Windows (arquivo em uso, disco cheio) pra algo legível na UI."""
+    if getattr(e, "winerror", None) == 32:
+        return "File is in use — close it (or the destination folder) in another program and try again."
+    if getattr(e, "errno", None) == 28:  # ENOSPC
+        return "Destination disk is full."
+    if isinstance(e, PermissionError):
+        return "Permission denied — check the destination isn't read-only or open elsewhere."
+    return str(e)
+
+
+def copy_files(index, folders, destination):
     dict_panos = {3: "Vertical", 9: "3x3", 21: "180", 33: "360"}
 
     copied_files = 0
     total_size_bytes = 0
+    base_path = destination
+    failures = []
 
     for folder in folders:
         date_str = folder['date']
@@ -102,34 +141,39 @@ def copy_files(disk, folders, destination):
         photo_path = os.path.join(base_path, "photo")  # <- removido 'others'
         video_path = os.path.join(base_path, "video")
 
-        os.makedirs(photo_path, exist_ok=True)
-        os.makedirs(video_path, exist_ok=True)
+        try:
+            os.makedirs(photo_path, exist_ok=True)
+            os.makedirs(video_path, exist_ok=True)
+        except OSError as e:
+            failures.append({"file": main_folder, "reason": _friendly_copy_error(e)})
+            continue
 
-        for root, _, files in os.walk(disk):
-            for file in files:
-                path = os.path.join(root, file)
+        bucket = index.get(date_obj, {"files": []})
 
-                if mod_date(path) != date_obj:
-                    continue
+        for path in bucket["files"]:
+            file = os.path.basename(path)
+            root = os.path.dirname(path)
+            ext = os.path.splitext(file)[1].lower()
+            is_pano_folder = "panorama" in root.lower()
+            is_samsung = 'samsung' in camera_name.lower()
 
-                ext = os.path.splitext(file)[1].lower()
-                is_pano_folder = "panorama" in root.lower()
-                is_photo = ext in COPY_EXTS
-                is_video = ext in VIDEO_EXTS
+            is_photo = ext in COPY_EXTS or (ext in ('.jpg', '.jpeg') and is_samsung)
+            is_video = ext in VIDEO_EXTS
 
+            try:
                 if is_photo:
                     if is_pano_folder:
-                        pano_folder = os.path.dirname(path)
+                        pano_folder = root
                         pano_files = [f for f in os.listdir(pano_folder) if os.path.isfile(os.path.join(pano_folder, f))]
                         pano_count = len(pano_files)
                         pano_type = dict_panos.get(pano_count, "others")
 
                         pano_base = os.path.join(base_path, "photo", "panoramas")
                         candidate_folder = os.path.join(pano_base, pano_type)
-                        index = 1
+                        pano_index = 1
                         while os.path.exists(candidate_folder) and file in os.listdir(candidate_folder):
-                            candidate_folder = os.path.join(pano_base, f"{pano_type}_{index}")
-                            index += 1
+                            candidate_folder = os.path.join(pano_base, f"{pano_type}_{pano_index}")
+                            pano_index += 1
 
                         os.makedirs(candidate_folder, exist_ok=True)
                         dest = os.path.join(candidate_folder, file)
@@ -142,14 +186,21 @@ def copy_files(disk, folders, destination):
                     continue
 
                 copy2(path, dest)
-                total_size_bytes += os.path.getsize(path)
-                copied_files += 1
+            except OSError as e:
+                failures.append({"file": file, "reason": _friendly_copy_error(e)})
+                continue
+
+            total_size_bytes += os.path.getsize(path)
+            copied_files += 1
 
         # Remove previews
         date_preview = date_obj.strftime("%Y%m%d")
         preview_folder = os.path.join("static", "previews", date_preview)
         if os.path.exists(preview_folder):
-            rmtree(preview_folder)
+            try:
+                rmtree(preview_folder)
+            except OSError:
+                pass
 
     size_mb = round(total_size_bytes / (1024 * 1024), 2)
     size_str = f"{size_mb} MB" if size_mb < 1024 else f"{round(size_mb / 1024, 2)} GB"
@@ -157,8 +208,36 @@ def copy_files(disk, folders, destination):
     return {
         "copied": copied_files,
         "size": size_str,
-        "path": base_path
+        "path": base_path,
+        "failed": failures
     }
+
+
+def load_config():
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_config(config):
+    with open("config.json", "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def get_default_destination():
+    config = load_config()
+    return config.get("last_destination") or os.path.expanduser("~/Desktop/Copy to SSD")
+
+
+def set_default_destination(path):
+    config = load_config()
+    config["last_destination"] = path
+    save_config(config)
 
 
 

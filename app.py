@@ -11,7 +11,10 @@ from werkzeug.utils import secure_filename
 
 from file_ops import get_external_disks
 from preview import get_preview_images
-from utils import detect_camera, find_dates, copy_files, analyze_folder_content, load_camera_db
+from utils import (
+    detect_camera, find_dates, copy_files, format_stats, load_camera_db,
+    get_disk_index, clear_disk_index_cache, get_default_destination, set_default_destination
+)
 from scraps import get_camera_image_duckduckgo
 
 app = Flask(__name__)
@@ -19,8 +22,37 @@ app = Flask(__name__)
 camera_db = load_camera_db()
 
 
+def _pick_folder(title):
+    """Abre o seletor de pastas nativo do Windows/macOS/Linux (via tkinter)."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    path = filedialog.askdirectory(title=title)
+    root.destroy()
+    return path
+
+
+@app.route('/browse')
+def browse():
+    kind = request.args.get('kind', 'origin')
+    title = "Select source (memory card / phone / camera)" if kind == 'origin' else "Select destination folder"
+    path = _pick_folder(title)
+
+    if not path:
+        return jsonify({"path": None})
+
+    if kind == 'destination':
+        set_default_destination(path)
+
+    return jsonify({"path": path})
+
+
 @app.route('/', methods=['GET', 'POST'])
 def home():
+    clear_disk_index_cache()  # tela inicial = ponto natural de troca de cartão/dispositivo
     disks = []
 
     for disk in get_external_disks():
@@ -60,14 +92,14 @@ def select():
         "image": "unknown.png"
     })
 
-    # Diretório de destino onde procuramos tags existentes
-    destination_base = os.path.expanduser("~/Desktop/Copy to SSD")
+    # Destino onde procuramos tags existentes e pra onde vamos copiar
+    destination_base = request.args.get('destination') or get_default_destination()
 
-    # Coleta todas as datas únicas com conteúdo válido
-    detected_dates = find_dates(disk)
+    # Varre o disco/pasta de origem UMA vez só e reaproveita pra preview/stats/cópia
+    index = get_disk_index(disk)
     date_cards = []
 
-    for date in sorted(detected_dates):
+    for date in find_dates(index):
         raw_date = date.strftime("%Y-%m-%d")
         folder_prefix = date.strftime("%Y%m%d")
         tag = ""
@@ -81,12 +113,13 @@ def select():
                         tag = parts[1]
                     break  # Achou uma, não precisa procurar mais
 
+        bucket = index[date]
         date_info = {
             "raw": raw_date,
             "folder": folder_prefix,
             "display": date.strftime('%d-%b'),
-            "preview": get_preview_images(disk, date, max_images=6),
-            "stats": analyze_folder_content(disk, raw_date),
+            "preview": get_preview_images(bucket["files"], date, max_images=6),
+            "stats": format_stats(bucket),
             "tag": tag
         }
 
@@ -96,7 +129,8 @@ def select():
         "select.html",
         disk=disk,
         camera=camera,
-        dates=date_cards
+        dates=date_cards,
+        destination=destination_base
     )
 
 @app.route("/cameras")
@@ -108,12 +142,13 @@ def camera_list():
 def status():
     selected_dates = request.form.getlist("selected_dates")
     disk = request.form.get("disk")
-    camera_id = detect_camera(disk)
+    destination = request.form.get("destination") or get_default_destination()
 
-    camera = camera_db.get(camera_id, {
-        "name": "Unknown Device",
-        "image": "unknown.png"
-    })
+    # Câmera já foi identificada na tela anterior — evita varrer o disco de novo
+    camera = {
+        "name": request.form.get("camera_name") or "Unknown Device",
+        "image": request.form.get("camera_image") or "unknown.png"
+    }
 
     if not selected_dates:
         return "Please select at least one date!", 400
@@ -121,9 +156,7 @@ def status():
     folders_info = []
 
     for date_str in selected_dates:
-        tag = request.form.get(f"tag_{date_str}")
-        if not tag:
-            continue
+        tag = request.form.get(f"tag_{date_str}", "").strip() or "Untitled"
 
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
         folder_name = f"{date_obj.strftime('%Y%m%d')} {tag.title()}"
@@ -139,7 +172,7 @@ def status():
         return "No valid folders to copy!", 400
 
     # Só renderiza a página e mostra botão para iniciar cópia
-    return render_template("status.html", folders=folders_info, disk=disk)
+    return render_template("status.html", folders=folders_info, disk=disk, destination=destination)
 
 
 @app.route('/copy', methods=['POST'])
@@ -147,16 +180,29 @@ def copy():
     data = request.get_json()
     folders = data.get("folders", [])
     disk = data.get("disk")
+    destination = data.get("destination") or get_default_destination()
 
     if not folders:
         return jsonify({"error": "No folders provided"}), 400
 
+    if not disk or not os.path.exists(disk):
+        return jsonify({"error": "Source not found — was the card/drive disconnected?"}), 400
+
+    try:
+        os.makedirs(destination, exist_ok=True)
+    except OSError as e:
+        return jsonify({"error": f"Can't write to destination: {e.strerror or e}"}), 500
+
     # Usa a primeira data, pois o frontend envia um por vez
     date_str = folders[0].get("date")
-    stats = analyze_folder_content(disk, date_str)
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    destination = os.path.expanduser("~/Desktop/Copy to SSD")
-    result = copy_files(disk, folders, destination)
+    try:
+        index = get_disk_index(disk)  # reaproveita a varredura já feita no /select
+        stats = format_stats(index.get(date_obj, {"photo_count": 0, "video_count": 0, "size_bytes": 0}))
+        result = copy_files(index, folders, destination)
+    except Exception as e:
+        return jsonify({"error": f"Copy failed: {e}"}), 500
 
     # Junta os dados do copy com as stats
     result.update({

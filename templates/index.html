@@ -9,6 +9,14 @@
   <p class="text-muted">Copy and organize your images on the external disk</p>
 </div>
 
+
+<div class="text-center mb-4">
+  <button id="browse-origin-btn" type="button" class="btn btn-outline-primary">
+    <i class="bi bi-folder2-open me-1"></i> Browse for source manually...
+  </button>
+  <p class="text-muted small mt-1">Use this for phones, cameras or card readers that don't show up below.</p>
+</div>
+
 <h3 class="text-center">Select your memory card</h3>
 {% if disks %}
 <div class="row row-cols-1 row-cols-md-2 g-4">
@@ -34,4 +42,21 @@
     <i class="bi bi-exclamation-circle me-2"></i>
     No external disks detected. Please insert a memory card.
   </div>
-{% endif %}{% endblock %}
+{% endif %}
+
+<script>
+document.getElementById('browse-origin-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('browse-origin-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/browse?kind=origin');
+    const data = await res.json();
+    if (data.path) {
+      window.location.href = `/select?disk=${encodeURIComponent(data.path)}`;
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+{% endblock %}

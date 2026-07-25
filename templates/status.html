@@ -49,11 +49,19 @@
   <strong><span id="files-{{ loop.index }}">0</span></strong> images copied –
   Total size: <strong><span id="size-{{ loop.index }}">0 MB</span></strong>
 </div>
+
+<!-- Erro explícito + retry -->
+<div class="alert alert-danger d-flex justify-content-between align-items-center mt-2 mb-0 py-2 px-3 small d-none" id="error-{{ loop.index }}">
+  <span id="error-msg-{{ loop.index }}"></span>
+  <button type="button" class="btn btn-sm btn-outline-danger ms-2 flex-shrink-0" id="retry-btn-{{ loop.index }}">
+    <i class="bi bi-arrow-clockwise"></i> Retry
+  </button>
+</div>
 </div>
 {% endfor %}
 
 <div class="d-flex justify-content-between mt-4">
-    <a href="{{ url_for('select', disk=disk) }}" class="btn btn-secondary">← Back</a>
+    <a href="{{ url_for('select', disk=disk, destination=destination) }}" class="btn btn-secondary">← Back</a>
     <button id="start-copy" class="btn btn-primary">Start Copy</button>
 </div>
 
@@ -62,56 +70,105 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
 
 <script>
+const folders = {{ folders | tojson | safe }};
+const disk = {{ disk | tojson | safe }};
+const destination = {{ destination | tojson | safe }};
+
+function setDoneState(i, ok) {
+  const stepDone = document.getElementById(`step-done-${i + 1}`);
+  const circle = stepDone.querySelector('.circle');
+  const icon = circle.querySelector('i');
+  const label = stepDone.querySelector('.label');
+
+  stepDone.classList.add('active');
+  if (ok) {
+    circle.classList.remove('bg-danger');
+    circle.classList.add('bg-success');
+    icon.className = 'bi bi-check-lg';
+    label.textContent = 'Done';
+  } else {
+    circle.classList.remove('bg-success');
+    circle.classList.add('bg-danger');
+    icon.className = 'bi bi-x-lg';
+    label.textContent = 'Error';
+  }
+}
+
+async function runCopy(i) {
+  const folder = folders[i];
+  const stepWaiting = document.getElementById(`step-waiting-${i + 1}`);
+  const stepCopying = document.getElementById(`step-copying-${i + 1}`);
+  const stepDone = document.getElementById(`step-done-${i + 1}`);
+  const filesSpan = document.getElementById(`files-${i + 1}`);
+  const sizeSpan = document.getElementById(`size-${i + 1}`);
+  const openBtn = document.getElementById(`open-btn-${i + 1}`);
+  const errorBox = document.getElementById(`error-${i + 1}`);
+  const errorMsg = document.getElementById(`error-msg-${i + 1}`);
+  const retryBtn = document.getElementById(`retry-btn-${i + 1}`);
+
+  errorBox.classList.add('d-none');
+  stepWaiting.classList.remove("active");
+  stepDone.classList.remove("active");
+  stepCopying.classList.add("active");
+
+  try {
+    const res = await fetch("/copy", {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folders: [folder], disk: disk, destination: destination })
+    });
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      throw new Error(`Server returned an unexpected response (HTTP ${res.status}).`);
+    }
+
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Copy failed (HTTP ${res.status}).`);
+    }
+
+    stepCopying.classList.remove("active");
+    setDoneState(i, !(data.failed && data.failed.length > 0));
+
+    filesSpan.innerText = data.copied || 0;
+    sizeSpan.innerText = data.size || "0 MB";
+
+    if (data.path) {
+      openBtn.disabled = false;
+      openBtn.onclick = () => fetch(`/open_folder?path=${encodeURIComponent(data.path)}`);
+    }
+
+    if (data.failed && data.failed.length > 0) {
+      const list = data.failed.map(f => `${f.file}: ${f.reason}`).join(' · ');
+      errorMsg.textContent = `${data.failed.length} file(s) failed to copy — ${list}`;
+      errorBox.classList.remove('d-none');
+    }
+
+  } catch (err) {
+    stepCopying.classList.remove("active");
+    setDoneState(i, false);
+    errorMsg.textContent = err.message || 'Copy failed — check your connection and try again.';
+    errorBox.classList.remove('d-none');
+  }
+}
+
 document.getElementById('start-copy').addEventListener('click', async () => {
   const button = document.getElementById('start-copy');
   button.disabled = true;
   button.innerText = 'Copying...';
 
-  const folders = {{ folders | tojson | safe }};
-  const disk = {{ disk | tojson | safe }};
-
   for (let i = 0; i < folders.length; i++) {
-    const folder = folders[i];
-    const stepWaiting = document.getElementById(`step-waiting-${i + 1}`);
-    const stepCopying = document.getElementById(`step-copying-${i + 1}`);
-    const stepDone = document.getElementById(`step-done-${i + 1}`);
-    const filesSpan = document.getElementById(`files-${i + 1}`);
-    const sizeSpan = document.getElementById(`size-${i + 1}`);
-    const openBtn = document.getElementById(`open-btn-${i + 1}`);
-
-    stepWaiting.classList.remove("active");
-    stepCopying.classList.add("active");
-
-    try {
-      const res = await fetch("/copy", {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folders: [folder], disk: disk })
-      });
-
-      const data = await res.json();
-
-      // Finaliza a etapa visual
-      stepCopying.classList.remove("active");
-      stepDone.classList.add("active");
-
-      filesSpan.innerText = data.copied || 0;
-      sizeSpan.innerText = data.size || "0 MB";
-
-      // Ativa o botão e define ação
-      if (data.path) {
-        openBtn.disabled = false;
-        openBtn.addEventListener("click", () => {
-          fetch(`/open_folder?path=${encodeURIComponent(data.path)}`);
-        });
-      }
-
-    } catch (err) {
-      console.error("Erro durante cópia:", err);
-    }
+    await runCopy(i);
   }
 
   button.innerText = 'Done!';
+  button.disabled = false;
+});
+
+folders.forEach((_, i) => {
+  document.getElementById(`retry-btn-${i + 1}`).addEventListener('click', () => runCopy(i));
 });
 </script>
 
