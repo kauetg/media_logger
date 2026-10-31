@@ -267,3 +267,8 @@ def set_default_destination(path):
 def load_camera_db():
     with open('cameras.json') as f:
         return json.load(f)
+
+
+def save_camera_db(db):
+    with open('cameras.json', 'w') as f:
+        json.dump(db, f, indent=2)

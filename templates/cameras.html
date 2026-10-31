@@ -20,15 +20,17 @@
             </div>
             <div class="card-footer bg-transparent border-0 text-end">
                 <button class="btn btn-outline-primary btn-sm"
-                        onclick="openEditCameraModal('{{ device_id }}', '{{ info.name }}', '{{ url_for('static', filename='img/cameras/' ~ info.image) }}')">
+                        data-camera-id="{{ device_id }}"
+                        data-camera-name="{{ info.name }}"
+                        data-camera-image="{{ url_for('static', filename='img/cameras/' ~ info.image) }}"
+                        onclick="openEditCameraModal(this.dataset.cameraId, this.dataset.cameraName, this.dataset.cameraImage)">
                     <i class="bi bi-pencil"></i> Edit
                 </button>
                 <form action="{{ url_for('delete_camera', camera_id=device_id) }}" method="POST" style="display:inline;">
-    <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure?')">
-        <i class="bi bi-trash"></i> Delete
-    </button>
-                    </form>
-</form>
+                    <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure?')">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </form>
             </div>
         </div>
     </div>
@@ -55,14 +57,18 @@
           <div id="stage-upload">
             <label class="form-label">Upload a photo taken with this camera</label>
             <input type="file" class="form-control" id="testPhoto" accept="image/*">
+            <div class="mt-2 text-end">
+              <a href="#" id="manualEntryLink">Or enter camera info manually</a>
+            </div>
           </div>
 
           <!-- Stage 2: After EXIF is read -->
           <div id="stage-form" class="d-none">
             <input type="hidden" name="original_id" id="originalId">
             <div class="mb-3">
-              <label for="cameraId" class="form-label">EXIF Name</label>
+              <label for="cameraId" class="form-label">Device ID</label>
               <input type="text" class="form-control" name="camera_id" id="cameraId" required>
+              <small class="form-text text-muted">Make/model, e.g. "Canon - EOS R5" — auto-filled from EXIF when detected</small>
             </div>
             <div class="mb-3">
               <label for="cameraName" class="form-label">Display Name</label>
@@ -167,8 +173,16 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("stage-form").classList.remove("d-none");
       document.getElementById("saveBtn").classList.remove("d-none");
     } else {
-      alert("Could not detect EXIF data.");
+      alert("Could not detect EXIF data on that photo. You can enter the camera info manually instead.");
     }
+  });
+
+  // Pular a detecção por EXIF e preencher o ID na mão
+  document.getElementById('manualEntryLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById("stage-upload").classList.add("d-none");
+    document.getElementById("stage-form").classList.remove("d-none");
+    document.getElementById("saveBtn").classList.remove("d-none");
   });
 });
 </script>

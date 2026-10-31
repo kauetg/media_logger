@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from file_ops import get_external_disks
 from preview import get_preview_images
 from utils import (
-    detect_camera, find_dates, copy_files_stream, format_stats, load_camera_db,
+    detect_camera, find_dates, copy_files_stream, format_stats, load_camera_db, save_camera_db,
     get_disk_index, clear_disk_index_cache, get_default_destination, set_default_destination
 )
 from scraps import get_camera_image_duckduckgo
@@ -118,7 +118,7 @@ def select():
     camera_id = detect_camera(disk)
     camera = camera_db.get(camera_id, {
         "name": "Unknown Device",
-        "image": "unknown.png"
+        "image": "unknown.jpg"
     })
 
     # Destino onde procuramos tags existentes e pra onde vamos copiar
@@ -176,7 +176,7 @@ def status():
     # Câmera já foi identificada na tela anterior — evita varrer o disco de novo
     camera = {
         "name": request.form.get("camera_name") or "Unknown Device",
-        "image": request.form.get("camera_image") or "unknown.png"
+        "image": request.form.get("camera_image") or "unknown.jpg"
     }
 
     if not selected_dates:
@@ -280,20 +280,17 @@ def add_camera():
                     f.write(img_data)
             except Exception as e:
                 print(f"Failed to fetch image: {e}")
-                filename = "unknown.png"
+                filename = "unknown.jpg"
         else:
-            filename = "unknown.png"
+            filename = "unknown.jpg"
 
     # Atualiza o JSON
-    with open("cameras.json", 'r+') as f:
-        db = json.load(f)
-        db[camera_id] = {
-            'name': name,
-            'image': filename
-        }
-        f.seek(0)
-        json.dump(db, f, indent=2)
-        f.truncate()
+    db = load_camera_db()
+    db[camera_id] = {
+        'name': name,
+        'image': filename
+    }
+    save_camera_db(db)
 
     return redirect(url_for('camera_list'))
 
@@ -303,42 +300,49 @@ def edit_camera(camera_id):
     if camera_id not in camera_db:
         return "Camera not found", 404
 
-    name = request.form.get('name')
+    new_id = (request.form.get('camera_id') or camera_id).strip()
+    name = request.form.get('name', '').strip()
     image_file = request.files.get('image_file')
     image_filename = camera_db[camera_id]['image']  # existing by default
-    print(image_file)
+
+    if new_id != camera_id and new_id in camera_db:
+        return f"A camera with ID '{new_id}' already exists", 400
+
     # Se o usuário submeter uma nova imagem
     if image_file and image_file.filename:
-        image_filename = secure_filename(image_file.filename)
-        image_file.save(os.path.join('static/img/cameras', image_filename))
+        old_image = image_filename
+        image_filename = secure_filename(new_id.lower().replace(" ", "_") + ".jpg")
+        image_file.save(os.path.join('static', 'img', 'cameras', image_filename))
 
-    camera_db[camera_id] = {
+        if old_image and old_image != "unknown.jpg" and old_image != image_filename:
+            old_path = os.path.join('static', 'img', 'cameras', old_image)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+
+    del camera_db[camera_id]
+    camera_db[new_id] = {
         "name": name,
         "image": image_filename
     }
 
-    with open("cameras.json", "w") as f:
-        json.dump(camera_db, f, indent=2)
+    save_camera_db(camera_db)
 
     return redirect(url_for('camera_list'))
 
 @app.route('/delete_camera/<camera_id>', methods=['POST'])
 def delete_camera(camera_id):
-    with open('cameras.json', 'r+') as f:
-        db = json.load(f)
+    db = load_camera_db()
 
-        if camera_id in db:
-            # opcional: remover imagem se não for "unknown.png"
-            image_filename = db[camera_id].get("image")
-            if image_filename and image_filename != "unknown.png":
-                image_path = os.path.join('static', 'img', 'cameras', image_filename)
-                if os.path.exists(image_path):
-                    os.remove(image_path)
+    if camera_id in db:
+        # opcional: remover imagem se não for "unknown.jpg"
+        image_filename = db[camera_id].get("image")
+        if image_filename and image_filename != "unknown.jpg":
+            image_path = os.path.join('static', 'img', 'cameras', image_filename)
+            if os.path.exists(image_path):
+                os.remove(image_path)
 
-            del db[camera_id]
-            f.seek(0)
-            json.dump(db, f, indent=2)
-            f.truncate()
+        del db[camera_id]
+        save_camera_db(db)
 
     return redirect(url_for('camera_list'))
 
@@ -369,7 +373,6 @@ def preview_camera_image():
     data = request.get_json()
     camera_name = data.get("name")
     url = get_camera_image_duckduckgo(camera_name)
-    print("url eh: " + url)
     return jsonify({"url": url})
 
 
