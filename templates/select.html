@@ -28,6 +28,12 @@
     <input type="hidden" name="camera_image" value="{{ camera.image }}">
     <input type="hidden" id="destination-input" name="destination" value="{{ destination }}">
 
+    <div class="d-flex justify-content-end mb-1">
+      <button type="button" id="toggle-select-all" class="btn btn-link btn-sm text-muted text-decoration-none lockable-field" disabled>
+        <i class="bi bi-dash-square me-1"></i> Deselect all
+      </button>
+    </div>
+
     {% for date in dates %}
 <div class="card mb-3 p-3 shadow-lg rounded-3">
   <!-- LINHA 1: Checkbox + Data + Tag + Preview -->
@@ -139,6 +145,26 @@ document.addEventListener('DOMContentLoaded', () => {
   } finally {
     sessionStorage.removeItem('ml_pending_tags');
   }
+});
+
+function updateSelectAllLabel() {
+  const checkboxes = document.querySelectorAll('input[name="selected_dates"]');
+  const toggleBtn = document.getElementById('toggle-select-all');
+  const allChecked = Array.from(checkboxes).every((cb) => cb.checked);
+  toggleBtn.innerHTML = allChecked
+    ? '<i class="bi bi-dash-square me-1"></i> Deselect all'
+    : '<i class="bi bi-check-square me-1"></i> Select all';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const checkboxes = document.querySelectorAll('input[name="selected_dates"]');
+  document.getElementById('toggle-select-all').addEventListener('click', () => {
+    const allChecked = Array.from(checkboxes).every((cb) => cb.checked);
+    checkboxes.forEach((cb) => { cb.checked = !allChecked; });
+    updateSelectAllLabel();
+  });
+  checkboxes.forEach((cb) => cb.addEventListener('change', updateSelectAllLabel));
+  updateSelectAllLabel();
 });
 
 document.getElementById('browse-destination-btn').addEventListener('click', async () => {
