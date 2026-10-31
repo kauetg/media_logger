@@ -5,15 +5,21 @@
 
 <h2 class="mb-3">Selected Camera: <span class="badge bg-secondary">{{ camera.name }}</span></h2>
 
-<div class="d-flex justify-content-between align-items-center mb-3 p-2 bg-light rounded-3 flex-wrap">
+<div id="destination-bar" class="destination-bar d-flex justify-content-between align-items-center mb-3 p-3 rounded-3 flex-wrap"
+     data-explicit="{{ 'true' if request.args.get('destination') else 'false' }}">
   <div class="text-truncate me-2">
-    <i class="bi bi-hdd-rack me-1"></i>
+    <i class="bi bi-exclamation-triangle-fill me-1" id="destination-icon"></i>
     <strong>Destination:</strong>
     <span id="destination-display">{{ destination }}</span>
   </div>
-  <button id="browse-destination-btn" type="button" class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-folder2-open me-1"></i> Change...
-  </button>
+  <div class="d-flex gap-2">
+    <button id="confirm-destination-btn" type="button" class="btn btn-warning btn-sm fw-semibold">
+      <i class="bi bi-check-circle me-1"></i> Use this destination
+    </button>
+    <button id="browse-destination-btn" type="button" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-folder2-open me-1"></i> Change...
+    </button>
+  </div>
 </div>
 
 <form method="POST" action="/status">
@@ -27,17 +33,17 @@
   <!-- LINHA 1: Checkbox + Data + Tag + Preview -->
   <div class="row g-2 align-items-center mb-2">
     <div class="col-auto">
-      <input class="form-check-input" type="checkbox" name="selected_dates" value="{{ date.raw }}" checked>
+      <input class="form-check-input lockable-field" type="checkbox" name="selected_dates" value="{{ date.raw }}" checked disabled>
     </div>
     <div class="col-auto">
       <div class="fs-5 fw-bold">{{ date.display }}</div>
     </div>
     <div class="col">
-      <input type="text" class="form-control form-control-sm" name="tag_{{ date.raw }}" placeholder="Folder Tag" value="{{ date.tag }}" data-original="{{ date.tag }}">
+      <input type="text" class="form-control form-control-sm lockable-field" name="tag_{{ date.raw }}" placeholder="Folder Tag" value="{{ date.tag }}" data-original="{{ date.tag }}" disabled>
     </div>
     <div class="col-auto text-end">
-      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal"
-              data-bs-target="#previewModal{{ loop.index }}">
+      <button type="button" class="btn btn-outline-secondary btn-sm lockable-field" data-bs-toggle="modal"
+              data-bs-target="#previewModal{{ loop.index }}" disabled>
         Preview
       </button>
     </div>
@@ -88,10 +94,35 @@
 
     {% endfor %}
 
-    <button type="submit" class="btn btn-success w-100 mt-3">Start Copying</button>
+    <button type="submit" id="start-copying-btn" class="btn btn-success w-100 mt-3 lockable-field" disabled>Start Copying</button>
 </form>
 
 <script>
+function setDestinationLocked(locked) {
+  const bar = document.getElementById('destination-bar');
+  const icon = document.getElementById('destination-icon');
+  const confirmBtn = document.getElementById('confirm-destination-btn');
+
+  document.querySelectorAll('.lockable-field').forEach((el) => {
+    el.disabled = locked;
+  });
+
+  bar.classList.toggle('destination-locked', locked);
+  bar.classList.toggle('destination-confirmed', !locked);
+  confirmBtn.classList.toggle('d-none', !locked);
+  icon.className = locked
+    ? 'bi bi-exclamation-triangle-fill me-1'
+    : 'bi bi-check-circle-fill me-1';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Trava tudo até o usuário confirmar o destino (ou ele já veio de uma troca explícita) —
+  // evita copiar pro lugar errado por não reparar na caixa de destino.
+  const bar = document.getElementById('destination-bar');
+  setDestinationLocked(bar.dataset.explicit !== 'true');
+  document.getElementById('confirm-destination-btn').addEventListener('click', () => setDestinationLocked(false));
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   // Restaura tags que o usuário já tinha digitado antes de trocar de destino
   // (a troca recarrega a página pra reavaliar as tags existentes no novo destino)

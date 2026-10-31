@@ -112,3 +112,25 @@ h1, h2, h3, .card-title {
   width: 100%;
   height: 100%;
 }
+
+/* Destination bar — precisa chamar atenção, é fácil copiar pro lugar errado */
+.destination-bar {
+  border: 2px solid transparent;
+  font-size: 1.05rem;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.destination-bar.destination-locked {
+  background-color: #fff3cd;
+  border-color: #ffc107;
+  box-shadow: 0 0 0 4px rgba(255, 193, 7, 0.2);
+}
+.destination-bar.destination-locked #destination-icon {
+  color: #997404;
+}
+.destination-bar.destination-confirmed {
+  background-color: #e8f5e9;
+  border-color: #198754;
+}
+.destination-bar.destination-confirmed #destination-icon {
+  color: #198754;
+}
