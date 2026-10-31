@@ -44,6 +44,12 @@
     <div class="label">Done</div>
   </div>
 </div>
+    <!-- Progress Bar -->
+<div class="progress mb-2 d-none" style="height: 6px;" id="progress-wrap-{{ loop.index }}">
+  <div class="progress-bar" id="progress-bar-{{ loop.index }}" role="progressbar"
+       style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+</div>
+
     <!-- Progress Info -->
 <div class="text-center text-muted small">
   <strong><span id="files-{{ loop.index }}">0</span></strong> images copied –
@@ -61,8 +67,8 @@
 {% endfor %}
 
 <div class="d-flex justify-content-between mt-4">
-    <a href="{{ url_for('select', disk=disk, destination=destination) }}" class="btn btn-secondary">← Back</a>
-    <button id="start-copy" class="btn btn-primary">Start Copy</button>
+    <a id="back-link" href="{{ url_for('select', disk=disk, destination=destination) }}" class="btn btn-secondary">← Back</a>
+    <button id="start-copy" class="btn btn-primary" disabled>Copying...</button>
 </div>
 
 
@@ -104,12 +110,16 @@ async function runCopy(i) {
   const openBtn = document.getElementById(`open-btn-${i + 1}`);
   const errorBox = document.getElementById(`error-${i + 1}`);
   const errorMsg = document.getElementById(`error-msg-${i + 1}`);
-  const retryBtn = document.getElementById(`retry-btn-${i + 1}`);
+  const progressWrap = document.getElementById(`progress-wrap-${i + 1}`);
+  const progressBar = document.getElementById(`progress-bar-${i + 1}`);
 
   errorBox.classList.add('d-none');
   stepWaiting.classList.remove("active");
   stepDone.classList.remove("active");
   stepCopying.classList.add("active");
+  progressWrap.classList.remove('d-none');
+  progressBar.style.width = '0%';
+  progressBar.setAttribute('aria-valuenow', '0');
 
   try {
     const res = await fetch("/copy", {
@@ -118,58 +128,111 @@ async function runCopy(i) {
       body: JSON.stringify({ folders: [folder], disk: disk, destination: destination })
     });
 
-    let data;
-    try {
-      data = await res.json();
-    } catch (parseErr) {
-      throw new Error(`Server returned an unexpected response (HTTP ${res.status}).`);
+    if (!res.ok || !res.body) {
+      throw new Error(`Copy failed (HTTP ${res.status}).`);
     }
 
-    if (!res.ok || data.error) {
-      throw new Error(data.error || `Copy failed (HTTP ${res.status}).`);
+    // O backend manda um JSON por linha (progresso a progresso, e por último o resultado final)
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalData = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // guarda a linha incompleta pro próximo pedaço
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+
+        if (event.type === 'progress') {
+          const pct = event.total > 0 ? Math.round((event.copied / event.total) * 100) : 100;
+          progressBar.style.width = `${pct}%`;
+          progressBar.setAttribute('aria-valuenow', String(pct));
+          filesSpan.innerText = `${event.copied}/${event.total}`;
+          sizeSpan.innerText = event.size;
+        } else if (event.type === 'error') {
+          throw new Error(event.error || 'Copy failed.');
+        } else if (event.type === 'done') {
+          finalData = event;
+        }
+      }
+    }
+
+    if (!finalData) {
+      throw new Error('Server closed the connection unexpectedly.');
     }
 
     stepCopying.classList.remove("active");
-    setDoneState(i, !(data.failed && data.failed.length > 0));
+    progressBar.style.width = '100%';
+    progressWrap.classList.add('d-none');
+    setDoneState(i, !(finalData.failed && finalData.failed.length > 0));
 
-    filesSpan.innerText = data.copied || 0;
-    sizeSpan.innerText = data.size || "0 MB";
+    filesSpan.innerText = finalData.copied || 0;
+    sizeSpan.innerText = finalData.size || "0 MB";
 
-    if (data.path) {
+    if (finalData.path) {
       openBtn.disabled = false;
-      openBtn.onclick = () => fetch(`/open_folder?path=${encodeURIComponent(data.path)}`);
+      openBtn.onclick = () => fetch(`/open_folder?path=${encodeURIComponent(finalData.path)}`);
     }
 
-    if (data.failed && data.failed.length > 0) {
-      const list = data.failed.map(f => `${f.file}: ${f.reason}`).join(' · ');
-      errorMsg.textContent = `${data.failed.length} file(s) failed to copy — ${list}`;
+    if (finalData.failed && finalData.failed.length > 0) {
+      const list = finalData.failed.map(f => `${f.file}: ${f.reason}`).join(' · ');
+      errorMsg.textContent = `${finalData.failed.length} file(s) failed to copy — ${list}`;
       errorBox.classList.remove('d-none');
     }
 
   } catch (err) {
     stepCopying.classList.remove("active");
+    progressWrap.classList.add('d-none');
     setDoneState(i, false);
     errorMsg.textContent = err.message || 'Copy failed — check your connection and try again.';
     errorBox.classList.remove('d-none');
   }
 }
 
-document.getElementById('start-copy').addEventListener('click', async () => {
+let copyStarted = false;
+let copyFinished = false;
+
+async function startAllCopies() {
+  if (copyStarted) return;
+  copyStarted = true;
+
   const button = document.getElementById('start-copy');
+  const backLink = document.getElementById('back-link');
   button.disabled = true;
   button.innerText = 'Copying...';
+  backLink.classList.add('disabled');
 
   for (let i = 0; i < folders.length; i++) {
     await runCopy(i);
   }
 
-  button.innerText = 'Done!';
+  copyFinished = true;
+  button.innerText = 'Done — Back to Home';
   button.disabled = false;
+  backLink.classList.remove('disabled');
+}
+
+document.getElementById('start-copy').addEventListener('click', () => {
+  if (copyFinished) {
+    window.location.href = '/';
+    return;
+  }
+  startAllCopies();
 });
 
 folders.forEach((_, i) => {
   document.getElementById(`retry-btn-${i + 1}`).addEventListener('click', () => runCopy(i));
 });
+
+// Começa a copiar automaticamente assim que a tela abre — não precisa clicar em nada
+startAllCopies();
 </script>
 
 {% endblock %}

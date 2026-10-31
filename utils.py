@@ -122,13 +122,28 @@ def _friendly_copy_error(e):
     return str(e)
 
 
-def copy_files(index, folders, destination):
+def _format_size(size_bytes):
+    size_mb = round(size_bytes / (1024 * 1024), 2)
+    return f"{size_mb} MB" if size_mb < 1024 else f"{round(size_mb / 1024, 2)} GB"
+
+
+def copy_files_stream(index, folders, destination):
+    """Como copy_files, mas é um generator que reporta progresso arquivo a arquivo.
+
+    Yields dicts com type "progress" durante a cópia, e um último dict com
+    type "done" (mesmo formato que o retorno antigo de copy_files) ao final.
+    """
     dict_panos = {3: "Vertical", 9: "3x3", 21: "180", 33: "360"}
 
     copied_files = 0
     total_size_bytes = 0
     base_path = destination
     failures = []
+
+    total_files = sum(
+        len(index.get(datetime.strptime(f['date'], "%Y-%m-%d").date(), {"files": []})["files"])
+        for f in folders
+    )
 
     for folder in folders:
         date_str = folder['date']
@@ -156,8 +171,11 @@ def copy_files(index, folders, destination):
             ext = os.path.splitext(file)[1].lower()
             is_pano_folder = "panorama" in root.lower()
             is_samsung = 'samsung' in camera_name.lower()
+            # Bursts/continuous/timelapse da GoPro: GPxxNNNN.JPG (duas letras variáveis, ex.: GPAA, GPAB...).
+            # Fotos avulsas da GoPro são GOPRNNNN.JPG e continuam de fora.
+            is_gopro_burst = bool(re.match(r'^gp[a-z]{2}\d+\.jpe?g$', file.lower()))
 
-            is_photo = ext in COPY_EXTS or (ext in ('.jpg', '.jpeg') and is_samsung)
+            is_photo = ext in COPY_EXTS or (ext in ('.jpg', '.jpeg') and (is_samsung or is_gopro_burst))
             is_video = ext in VIDEO_EXTS
 
             try:
@@ -193,6 +211,13 @@ def copy_files(index, folders, destination):
             total_size_bytes += os.path.getsize(path)
             copied_files += 1
 
+            yield {
+                "type": "progress",
+                "copied": copied_files,
+                "total": total_files,
+                "size": _format_size(total_size_bytes)
+            }
+
         # Remove previews
         date_preview = date_obj.strftime("%Y%m%d")
         preview_folder = os.path.join("static", "previews", date_preview)
@@ -202,12 +227,10 @@ def copy_files(index, folders, destination):
             except OSError:
                 pass
 
-    size_mb = round(total_size_bytes / (1024 * 1024), 2)
-    size_str = f"{size_mb} MB" if size_mb < 1024 else f"{round(size_mb / 1024, 2)} GB"
-
-    return {
+    yield {
+        "type": "done",
         "copied": copied_files,
-        "size": size_str,
+        "size": _format_size(total_size_bytes),
         "path": base_path,
         "failed": failures
     }

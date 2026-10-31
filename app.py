@@ -6,13 +6,13 @@ from datetime import datetime
 
 import exifread
 import requests
-from flask import Flask, render_template, request, redirect, url_for, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, Response, stream_with_context
 from werkzeug.utils import secure_filename
 
 from file_ops import get_external_disks
 from preview import get_preview_images
 from utils import (
-    detect_camera, find_dates, copy_files, format_stats, load_camera_db,
+    detect_camera, find_dates, copy_files_stream, format_stats, load_camera_db,
     get_disk_index, clear_disk_index_cache, get_default_destination, set_default_destination
 )
 from scraps import get_camera_image_duckduckgo
@@ -197,20 +197,19 @@ def copy():
     date_str = folders[0].get("date")
     date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    try:
-        index = get_disk_index(disk)  # reaproveita a varredura já feita no /select
-        stats = format_stats(index.get(date_obj, {"photo_count": 0, "video_count": 0, "size_bytes": 0}))
-        result = copy_files(index, folders, destination)
-    except Exception as e:
-        return jsonify({"error": f"Copy failed: {e}"}), 500
+    def generate():
+        try:
+            index = get_disk_index(disk)  # reaproveita a varredura já feita no /select
+            stats = format_stats(index.get(date_obj, {"photo_count": 0, "video_count": 0, "size_bytes": 0}))
 
-    # Junta os dados do copy com as stats
-    result.update({
-        "photos": stats["photos"],
-        "videos": stats["videos"]
-    })
+            for event in copy_files_stream(index, folders, destination):
+                if event["type"] == "done":
+                    event.update({"photos": stats["photos"], "videos": stats["videos"]})
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            yield json.dumps({"type": "error", "error": f"Copy failed: {e}"}) + "\n"
 
-    return jsonify(result)
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
 @app.route("/open_folder")
 def open_folder():

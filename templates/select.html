@@ -33,7 +33,7 @@
       <div class="fs-5 fw-bold">{{ date.display }}</div>
     </div>
     <div class="col">
-      <input type="text" class="form-control form-control-sm" name="tag_{{ date.raw }}" placeholder="Folder Tag" value="{{ date.tag }}">
+      <input type="text" class="form-control form-control-sm" name="tag_{{ date.raw }}" placeholder="Folder Tag" value="{{ date.tag }}" data-original="{{ date.tag }}">
     </div>
     <div class="col-auto text-end">
       <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal"
@@ -92,6 +92,24 @@
 </form>
 
 <script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Restaura tags que o usuário já tinha digitado antes de trocar de destino
+  // (a troca recarrega a página pra reavaliar as tags existentes no novo destino)
+  try {
+    const pending = JSON.parse(sessionStorage.getItem('ml_pending_tags') || 'null');
+    if (pending) {
+      Object.entries(pending).forEach(([dateKey, value]) => {
+        const input = document.querySelector(`[name="tag_${dateKey}"]`);
+        if (input) input.value = value;
+      });
+    }
+  } catch (e) {
+    // ignora JSON inválido
+  } finally {
+    sessionStorage.removeItem('ml_pending_tags');
+  }
+});
+
 document.getElementById('browse-destination-btn').addEventListener('click', async () => {
   const btn = document.getElementById('browse-destination-btn');
   btn.disabled = true;
@@ -99,7 +117,16 @@ document.getElementById('browse-destination-btn').addEventListener('click', asyn
     const res = await fetch('/browse?kind=destination');
     const data = await res.json();
     if (data.path) {
-      // Recarrega a tela pra reavaliar as tags já existentes na nova pasta de destino
+      // Guarda as tags já editadas pra não perder nada ao recarregar com o novo destino
+      const dirtyTags = {};
+      document.querySelectorAll('input[name^="tag_"]').forEach((input) => {
+        const dateKey = input.name.slice('tag_'.length);
+        if (input.value !== (input.dataset.original || '')) {
+          dirtyTags[dateKey] = input.value;
+        }
+      });
+      sessionStorage.setItem('ml_pending_tags', JSON.stringify(dirtyTags));
+
       const url = new URL(window.location.href);
       url.searchParams.set('destination', data.path);
       window.location.href = url.toString();
