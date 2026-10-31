@@ -2,6 +2,8 @@ import json
 import os
 import platform
 import subprocess
+import threading
+import time
 from datetime import datetime
 
 import exifread
@@ -20,6 +22,33 @@ from scraps import get_camera_image_duckduckgo
 app = Flask(__name__)
 
 camera_db = load_camera_db()
+
+# Desliga o processo sozinho quando o navegador para de mandar heartbeat
+# (aba/janela fechada) — evita ficar com o server preso na porta pra sempre.
+HEARTBEAT_TIMEOUT = 10  # segundos sem heartbeat
+_last_heartbeat = None
+_heartbeat_lock = threading.Lock()
+_watchdog_started = False
+
+
+def _watch_heartbeat():
+    while True:
+        time.sleep(2)
+        with _heartbeat_lock:
+            last = _last_heartbeat
+        if last is not None and time.time() - last > HEARTBEAT_TIMEOUT:
+            os._exit(0)
+
+
+@app.route('/heartbeat', methods=['POST'])
+def heartbeat():
+    global _last_heartbeat, _watchdog_started
+    with _heartbeat_lock:
+        _last_heartbeat = time.time()
+        if not _watchdog_started:
+            _watchdog_started = True
+            threading.Thread(target=_watch_heartbeat, daemon=True).start()
+    return '', 204
 
 
 def _pick_folder(title):
@@ -345,4 +374,4 @@ def preview_camera_image():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)

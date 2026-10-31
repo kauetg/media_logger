@@ -49,5 +49,15 @@
 <!-- Seu JS -->
 <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 
+<script>
+// Avisa o servidor que o app ainda está aberto. Se parar de avisar
+// (navegador/aba fechados), o servidor se desliga sozinho.
+(function () {
+  const ping = () => fetch('/heartbeat', { method: 'POST', keepalive: true }).catch(() => {});
+  ping();
+  setInterval(ping, 2000);
+})();
+</script>
+
 </body>
 </html>
